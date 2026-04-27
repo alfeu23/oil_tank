@@ -8,4 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Git
+.gitignore
+
+# Kaggle dataset
 dataset/oil_tanks
