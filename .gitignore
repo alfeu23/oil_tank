@@ -14,3 +14,10 @@ wheels/
 
 # Kaggle dataset
 dataset/oil_tanks
+
+# YOLO split output (generated)
+dataset/yolo
+dataset/
+
+# Ultralytics outputs
+runs
