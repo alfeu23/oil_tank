@@ -1,4 +1,6 @@
+
 import argparse
+import json
 import os
 import sys
 
@@ -10,6 +12,56 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from hough import detect_combined, draw_circles, nms_circles
 from l_channel import build_combined_mask
 from shadow import draw_volume_estimates, estimate_tank_volumes, write_volume_csv
+
+
+def load_label_circles(labels_json_path, image_path):
+    with open(labels_json_path) as f:
+        labels = json.load(f)
+
+    image_name = os.path.basename(image_path)
+    item = next(
+        (entry for entry in labels if entry.get("file_name") == image_name), None
+    )
+    if item is None:
+        raise ValueError(f"Could not find {image_name} in {labels_json_path}")
+    if item.get("label") == "Skip":
+        return np.empty((0, 3), dtype=np.int32), np.array([], dtype=np.float32)
+
+    circles = []
+    for annotation in item["label"].get("Tank", []):
+        geometry = annotation.get("geometry", [])
+        if not geometry:
+            continue
+        xs = [point["x"] for point in geometry]
+        ys = [point["y"] for point in geometry]
+        x1, x2 = min(xs), max(xs)
+        y1, y2 = min(ys), max(ys)
+        cx = int(round((x1 + x2) / 2))
+        cy = int(round((y1 + y2) / 2))
+        radius = int(round(max(x2 - x1, y2 - y1) / 2))
+        circles.append([cx, cy, radius])
+
+    if not circles:
+        return np.empty((0, 3), dtype=np.int32), np.array([], dtype=np.float32)
+
+    circles = np.array(circles, dtype=np.int32)
+    scores = np.ones(len(circles), dtype=np.float32)
+    return circles, scores
+
+
+def apply_circle_margin(circles, margin_pixels=0, margin_ratio=0.0):
+    if len(circles) == 0:
+        return circles
+
+    expanded = np.array(circles, dtype=np.int32).copy()
+    for circle in expanded:
+        r = int(circle[2])
+        extra = int(round(margin_pixels + (r * margin_ratio)))
+        if extra <= 0:
+            continue
+        circle[2] = max(1, r + extra)
+
+    return expanded
 
 
 def process_slice(slice_img, method="combined", **kwargs):
@@ -80,6 +132,11 @@ def process_image_sliced(
     calculate_volume=False,
     volume_csv_path=None,
     evidence_mask_path=None,
+    align_to_labels=False,
+    labels_json_path=None,
+    open_roof_only=False,
+    circle_margin=0,
+    circle_margin_ratio=0.0,
     **kwargs,
 ):
     image = cv2.imread(image_path)
@@ -133,6 +190,22 @@ def process_image_sliced(
         f"({strong_candidates} strong candidates)"
     )
 
+    if align_to_labels:
+        if labels_json_path is None:
+            raise ValueError("--align-to-labels requires --labels-json")
+        final_circles, final_scores = load_label_circles(labels_json_path, image_path)
+        print(
+            f"Aligned detections to labels: {len(final_circles)} tanks from "
+            f"{labels_json_path}"
+        )
+
+    classification_circles = final_circles.copy()
+    final_circles = apply_circle_margin(
+        final_circles,
+        margin_pixels=circle_margin,
+        margin_ratio=circle_margin_ratio,
+    )
+
     result_image = draw_circles(image, final_circles, final_scores)
 
     if calculate_volume:
@@ -141,9 +214,32 @@ def process_image_sliced(
             final_circles,
             final_scores,
             min_shadow_fraction=kwargs.get("min_shadow_fraction", 0.015),
-            min_oil_fraction=kwargs.get("min_oil_fraction", 0.04),
+            min_oil_fraction=kwargs.get("min_oil_fraction", 0.30),
             include_unshadowed=kwargs.get("include_unshadowed", False),
+            classification_circles=classification_circles,
+            min_open_roof_radius=kwargs.get("min_open_roof_radius", 24),
+            max_white_roof_fraction=kwargs.get("max_white_roof_fraction", 0.55),
+            max_soil_fraction=kwargs.get("max_soil_fraction", 0.30),
+            max_green_fraction=kwargs.get("max_green_fraction", 0.20),
+            max_internal_edge_density=kwargs.get("max_internal_edge_density", 0.20),
+            min_oil_component_fraction=kwargs.get("min_oil_component_fraction", 0.20),
+            min_oil_component_circularity=kwargs.get(
+                "min_oil_component_circularity", 0.60
+            ),
+            min_oil_component_aspect=kwargs.get("min_oil_component_aspect", 0.55),
+            min_oil_component_fill=kwargs.get("min_oil_component_fill", 0.45),
         )
+        total_estimates = len(estimates)
+        open_estimates = [
+            estimate for estimate in estimates if estimate.roof_type == "open_roof"
+        ]
+        shadowed_tanks = sum(
+            estimate.has_internal_shadow for estimate in open_estimates
+        )
+        oil_tanks = sum(estimate.has_oil_evidence for estimate in open_estimates)
+        if open_roof_only:
+            estimates = open_estimates
+        measured_tanks = sum(estimate.included_in_volume for estimate in estimates)
         result_image = draw_volume_estimates(image, estimates, evidence_mask)
 
         if volume_csv_path is None and output_path:
@@ -162,13 +258,10 @@ def process_image_sliced(
             cv2.imwrite(evidence_mask_path, evidence_mask)
             print(f"Open-roof evidence mask saved to {evidence_mask_path}")
 
-        shadowed_tanks = sum(estimate.has_internal_shadow for estimate in estimates)
-        oil_tanks = sum(estimate.has_oil_evidence for estimate in estimates)
-        measured_tanks = sum(estimate.included_in_volume for estimate in estimates)
         print(
-            f"Open-roof evidence found in {measured_tanks}/{len(estimates)} tanks "
+            f"Open-roof evidence found in {len(open_estimates)}/{total_estimates} tanks "
             f"({shadowed_tanks} with shadow, {oil_tanks} with oil evidence). "
-            f"Volume calculated for {measured_tanks}/{len(estimates)} tanks using "
+            f"Volume calculated for {measured_tanks}/{total_estimates} tanks using "
             "1 - (internal shadow area / external area)."
         )
 
@@ -202,89 +295,131 @@ def _save_debug_views(image, image_path, output_path, **kwargs):
     print(f"Debug images saved to {debug_dir}/")
 
 
+def _clean_image_id(image_id, suffix):
+    stem = os.path.splitext(image_id)[0]
+    if suffix and stem.endswith(suffix):
+        stem = stem[: -len(suffix)]
+    return stem
+
+
+def build_pipeline_config(dataset_root, mode, image_id):
+    base_configs = {
+        "patch": {
+            "slice_size": 512,
+            "overlap": 0.0,
+            "min_area": 40,
+            "max_area": 6000,
+            "min_radius": 6,
+            "max_radius": 40,
+            "circle_margin": 4,
+            "circle_margin_ratio": 0.0,
+            "min_shadow_fraction": 0.015,
+            "min_oil_fraction": 0.30,
+            "min_open_roof_radius": 24,
+            "max_white_roof_fraction": 0.55,
+            "max_soil_fraction": 0.30,
+            "max_green_fraction": 0.20,
+            "max_internal_edge_density": 0.20,
+            "min_oil_component_fraction": 0.20,
+            "min_oil_component_circularity": 0.60,
+            "min_oil_component_aspect": 0.55,
+            "min_oil_component_fill": 0.45,
+        },
+        "large": {
+            "slice_size": 1024,
+            "overlap": 0.10,
+            "min_area": 40,
+            "max_area": 6000,
+            "min_radius": 6,
+            "max_radius": 40,
+            "circle_margin": 4,
+            "circle_margin_ratio": 0.0,
+            "min_shadow_fraction": 0.015,
+            "min_oil_fraction": 0.30,
+            "min_open_roof_radius": 24,
+            "max_white_roof_fraction": 0.55,
+            "max_soil_fraction": 0.30,
+            "max_green_fraction": 0.20,
+            "max_internal_edge_density": 0.20,
+            "min_oil_component_fraction": 0.20,
+            "min_oil_component_circularity": 0.60,
+            "min_oil_component_aspect": 0.55,
+            "min_oil_component_fill": 0.45,
+        },
+    }
+
+    config = base_configs[mode].copy()
+    if mode == "patch":
+        patch_id = _clean_image_id(image_id, "")
+        config["image"] = os.path.join(dataset_root, "image_patches", f"{patch_id}.jpg")
+        config["output"] = f"predictions/classic_vision_patch_{patch_id}_open_roof.png"
+    else:
+        large_id = _clean_image_id(image_id, "_large")
+        config["image"] = os.path.join(
+            dataset_root, "large_images", f"{large_id}_large.jpg"
+        )
+        config["output"] = f"predictions/classic_vision_large_{large_id}_open_roof.png"
+
+    return config
+
+
 if __name__ == "__main__":
     DATASET_ROOT = "/Users/alfeu/.cache/kagglehub/datasets/towardsentropy/oil-storage-tanks/versions/1/Oil Tanks"
-    DEFAULT_IMAGE = os.path.join(DATASET_ROOT, "large_images/01_large.jpg")
-
     parser = argparse.ArgumentParser(
-        description="Sliced Classic Vision Oil Tank Detector"
+        description="Classic vision open-roof oil tank pipeline"
     )
-    parser.add_argument(
-        "--image", default=DEFAULT_IMAGE, help="Path to the input image"
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--patch",
+        nargs="?",
+        const="01_5_2",
+        metavar="PATCH_ID",
+        help="Run a 512x512 patch image, e.g. --patch 01_5_2",
     )
-    parser.add_argument("--output", default="predictions/classic_vision_sliced.png")
-    parser.add_argument(
-        "--method",
-        choices=["hough", "contours", "combined"],
-        default="combined",
-        help="Detection method (default: combined)",
-    )
-    parser.add_argument("--slice-size", type=int, default=1024)
-    parser.add_argument("--overlap", type=float, default=0.1)
-    parser.add_argument("--invert", action="store_true")
-    parser.add_argument("--block-size", type=int, default=11)
-    parser.add_argument("--min-area", type=int, default=100)
-    parser.add_argument("--max-area", type=int, default=10000)
-    parser.add_argument("--min-radius", type=int, default=10)
-    parser.add_argument("--max-radius", type=int, default=100)
-    parser.add_argument(
-        "--calculate-volume",
-        action="store_true",
-        help="Estimate tank volume from internal shadow area",
-    )
-    parser.add_argument(
-        "--volume-csv",
-        default=None,
-        help="Path for per-tank volume CSV (default: output filename + _volumes.csv)",
-    )
-    parser.add_argument(
-        "--shadow-mask-output",
-        default=None,
-        help="Path for the open-roof evidence mask image",
-    )
-    parser.add_argument(
-        "--min-shadow-fraction",
-        type=float,
-        default=0.015,
-        help="Minimum internal shadow fraction required to mark a tank as shadowed",
-    )
-    parser.add_argument(
-        "--min-oil-fraction",
-        type=float,
-        default=0.04,
-        help="Minimum dark oil/liquid fraction required to mark a tank as open roof",
-    )
-    parser.add_argument(
-        "--include-unshadowed",
-        action="store_true",
-        help="Also calculate 100% volume for tanks without measurable internal shadow",
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Save intermediate preprocessing images"
+    mode.add_argument(
+        "--large",
+        nargs="?",
+        const="01",
+        metavar="LARGE_ID",
+        help="Run a 4800x4800 large image, e.g. --large 01",
     )
 
     args = parser.parse_args()
+    selected_mode = "patch" if args.patch is not None else "large"
+    selected_id = args.patch if selected_mode == "patch" else args.large
+    config = build_pipeline_config(DATASET_ROOT, selected_mode, selected_id)
 
-    if not os.path.exists(args.image):
-        print(f"Error: Image {args.image} not found.")
+    if not os.path.exists(config["image"]):
+        print(f"Error: Image {config['image']} not found.")
     else:
+        print(f"Running classic vision pipeline in {selected_mode} mode: {selected_id}")
         process_image_sliced(
-            args.image,
-            args.output,
-            method=args.method,
-            slice_size=args.slice_size,
-            overlap=args.overlap,
-            invert=args.invert,
-            block_size=args.block_size,
-            min_area=args.min_area,
-            max_area=args.max_area,
-            min_radius=args.min_radius,
-            max_radius=args.max_radius,
-            calculate_volume=args.calculate_volume,
-            volume_csv_path=args.volume_csv,
-            evidence_mask_path=args.shadow_mask_output,
-            min_shadow_fraction=args.min_shadow_fraction,
-            min_oil_fraction=args.min_oil_fraction,
-            include_unshadowed=args.include_unshadowed,
-            debug=args.debug,
+            config["image"],
+            config["output"],
+            method="combined",
+            slice_size=config["slice_size"],
+            overlap=config["overlap"],
+            invert=False,
+            block_size=11,
+            min_area=config["min_area"],
+            max_area=config["max_area"],
+            min_radius=config["min_radius"],
+            max_radius=config["max_radius"],
+            calculate_volume=True,
+            open_roof_only=True,
+            circle_margin=config["circle_margin"],
+            circle_margin_ratio=config["circle_margin_ratio"],
+            min_shadow_fraction=config["min_shadow_fraction"],
+            min_oil_fraction=config["min_oil_fraction"],
+            min_open_roof_radius=config["min_open_roof_radius"],
+            max_white_roof_fraction=config["max_white_roof_fraction"],
+            max_soil_fraction=config["max_soil_fraction"],
+            max_green_fraction=config["max_green_fraction"],
+            max_internal_edge_density=config["max_internal_edge_density"],
+            min_oil_component_fraction=config["min_oil_component_fraction"],
+            min_oil_component_circularity=config["min_oil_component_circularity"],
+            min_oil_component_aspect=config["min_oil_component_aspect"],
+            min_oil_component_fill=config["min_oil_component_fill"],
+            include_unshadowed=False,
+            debug=False,
         )

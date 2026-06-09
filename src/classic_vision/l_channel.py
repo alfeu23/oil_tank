@@ -92,8 +92,12 @@ def build_combined_mask(image, block_size=11, invert=False, edge_weight=0.5):
         roof_mask = cv2.bitwise_not(roof_mask)
 
     cleanup_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    roof_mask = cv2.morphologyEx(roof_mask, cv2.MORPH_OPEN, cleanup_kernel, iterations=1)
-    roof_mask = cv2.morphologyEx(roof_mask, cv2.MORPH_CLOSE, cleanup_kernel, iterations=2)
+    roof_mask = cv2.morphologyEx(
+        roof_mask, cv2.MORPH_OPEN, cleanup_kernel, iterations=1
+    )
+    roof_mask = cv2.morphologyEx(
+        roof_mask, cv2.MORPH_CLOSE, cleanup_kernel, iterations=2
+    )
 
     return roof_mask, l_channel
 
