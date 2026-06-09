@@ -6,13 +6,15 @@ import torch
 import torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import functional as TF
 from torchvision.transforms.functional import to_tensor
 from tqdm import tqdm
 
 
 class TankSegDataset(Dataset):
-    def __init__(self, image_paths):
+    def __init__(self, image_paths, augment=False):
         self.image_paths = image_paths
+        self.augment = augment
 
     def __len__(self):
         return len(self.image_paths)
@@ -24,8 +26,35 @@ class TankSegDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         mask = Image.open(mask_path)
 
-        image = to_tensor(image)  # [3, H, W], float 0..1
-        mask = torch.from_numpy(np.array(mask)).long()  # [H, W], classes 0,1,2
+        if self.augment:
+            # Horizontal Flip
+            if random.random() < 0.5:
+                image = TF.hflip(image)
+                mask = TF.hflip(mask)
+
+            # Vertical Flip
+            if random.random() < 0.5:
+                image = TF.vflip(image)
+                mask = TF.vflip(mask)
+
+            # Rotação aleatória
+            angle = random.uniform(-30, 30)
+
+            image = TF.rotate(
+                image,
+                angle,
+                interpolation=TF.InterpolationMode.BILINEAR,
+            )
+
+            mask = TF.rotate(
+                mask,
+                angle,
+                interpolation=TF.InterpolationMode.NEAREST,
+            )
+
+        image = TF.to_tensor(image)
+
+        mask = torch.from_numpy(np.array(mask, dtype=np.uint8)).long()
 
         return image, mask
 
@@ -92,8 +121,16 @@ def main():
     train_paths = image_paths[:52]
     val_paths = image_paths[52:]
 
-    train_loader = DataLoader(TankSegDataset(train_paths), batch_size=4, shuffle=True)
-    val_loader = DataLoader(TankSegDataset(val_paths), batch_size=4)
+    train_loader = DataLoader(
+        TankSegDataset(train_paths, augment=False),
+        batch_size=4,
+        shuffle=True,
+    )
+
+    val_loader = DataLoader(
+        TankSegDataset(val_paths, augment=False),
+        batch_size=4,
+    )
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print("device:", device)

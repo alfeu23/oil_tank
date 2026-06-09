@@ -124,8 +124,8 @@ def predict_one(
     color_path = output_dir / f"{stem}_mask_color.png"
     overlay_path = output_dir / f"{stem}_overlay.png"
 
-    Image.fromarray(pred).save(mask_path)
-    Image.fromarray(mask_to_rgb(pred)).save(color_path)
+    # Image.fromarray(pred).save(mask_path)
+    # Image.fromarray(mask_to_rgb(pred)).save(color_path)
     overlay_mask(resized, pred).save(overlay_path)
 
     inner_area = int((pred == 1).sum())
