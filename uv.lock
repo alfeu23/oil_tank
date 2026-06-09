@@ -819,6 +819,9 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pandas" },
     { name = "sahi" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "tqdm" },
     { name = "ultralytics" },
 ]
 
@@ -829,6 +832,9 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.13.0.92" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "sahi", specifier = ">=0.11.14" },
+    { name = "torch", specifier = ">=2.12.0" },
+    { name = "torchvision", specifier = ">=0.27.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
     { name = "ultralytics", specifier = ">=8.4.51" },
 ]
 

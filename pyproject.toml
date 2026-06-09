@@ -10,5 +10,8 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "pandas>=3.0.3",
     "sahi>=0.11.14",
+    "torch>=2.12.0",
+    "torchvision>=0.27.0",
+    "tqdm>=4.67.3",
     "ultralytics>=8.4.51",
 ]
