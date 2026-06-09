@@ -83,9 +83,14 @@ def build_combined_mask(image, block_size=11, invert=False, edge_weight=0.5):
     saturation = extract_saturation(image)
 
     light_cutoff = np.percentile(l_channel, 80)
+    dark_cutoff = np.percentile(l_channel, 20)
     sat_cutoff = np.percentile(saturation, 85)
+
     roof_mask = np.where(
-        (l_channel >= light_cutoff) & (saturation <= sat_cutoff), 255, 0
+        ((l_channel >= light_cutoff) | (l_channel <= dark_cutoff))
+        & (saturation <= sat_cutoff),
+        255,
+        0,
     ).astype(np.uint8)
 
     if invert:

@@ -36,33 +36,38 @@ Saídas:
 
 ## Classic vision volume estimate
 
-After detecting circular tanks, the classic pipeline can estimate fill volume
-from internal floating-roof shadow area:
+The classic pipeline is configured for the project defaults:
 
 ```bash
-.venv/bin/python src/classic_vision/main.py \
-  --image "/Users/alfeu/.cache/kagglehub/datasets/towardsentropy/oil-storage-tanks/versions/1/Oil Tanks/image_patches/01_5_2.jpg" \
-  --output predictions/classic_vision_volume.png \
-  --calculate-volume \
-  --min-radius 6 \
-  --max-radius 40 \
-  --min-area 40 \
-  --max-area 6000
+.venv/bin/python src/classic_vision/main.py --patch 01_5_2
 ```
+
+```bash
+.venv/bin/python src/classic_vision/main.py --large 01
+```
+
+Modes:
+- `--patch PATCH_ID`: runs `image_patches/PATCH_ID.jpg`, default `01_5_2`.
+- `--large LARGE_ID`: runs `large_images/LARGE_ID_large.jpg`, default `01`.
+
+For patch images, the pipeline uses the dataset's `Floating Head Tank` labels
+when present. This identifies open-roof tanks directly, matching the Kaggle
+notebook approach. If a patch has no `Floating Head Tank` labels, it falls back
+to automatic circle detection plus open-roof filtering.
+
+Volume estimation follows the Kaggle notebook's shadow-analysis method:
+- Crop around the tank.
+- Enhance shadows with `-(LAB_L + LAB_B) / (HSV_V + 1)`.
+- Threshold with `0.6 * minimum_threshold + 0.4 * mean_threshold`.
+- Clean the mask with border clearing, closing, hole filling, and connected
+  component filtering.
+- Select the two largest tank-shadow regions.
 
 The volume estimate is:
 
 ```text
-volume = 1 - (internal_shadow_area / external_tank_area)
+volume = 1 - (smaller_shadow_area / larger_shadow_area)
 ```
-
-Only tanks with open-roof evidence are included in the volume calculation by
-default. A tank is treated as open roof when it has measurable internal shadow
-or visible dark oil/liquid evidence inside the tank. Bright, uniform tanks
-without either signal are marked as `closed_roof` so fixed/closed-roof tanks do
-not skew the result. Use `--min-oil-fraction` to tune the oil evidence threshold
-or `--include-unshadowed` only if you intentionally want unmeasured tanks counted
-as 100% full.
 
 Outputs:
 - Annotated image with tank IDs and volume percentages.

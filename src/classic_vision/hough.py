@@ -261,7 +261,7 @@ def _score_circle_candidate(
         median_value = float(np.median(value[inside_pixels_mask]))
         green_support = float(np.count_nonzero(green_pixels)) / inside_pixels
 
-        if edge_support < 0.14 and local_contrast < 70:
+        if edge_support < 0.14 and local_contrast < 45:
             return None
         is_clipped = (
             x - r < 2
@@ -269,16 +269,16 @@ def _score_circle_candidate(
             or x + r >= l_channel.shape[1] - 2
             or y + r >= l_channel.shape[0] - 2
         )
-        min_rim_coverage = 0.35 if is_clipped else 0.52
+        min_rim_coverage = 0.30 if is_clipped else 0.48
         if rim_coverage < min_rim_coverage:
             return None
-        if local_contrast < 30:
+        if local_contrast < 22:
             return None
-        if median_value < 145 and local_contrast < 65:
+        if median_value < 130 and local_contrast < 40:
             return None
-        if median_saturation > 58 and local_contrast < 95:
+        if median_saturation > 75 and local_contrast < 65:
             return None
-        if green_support > 0.22 and local_contrast < 110:
+        if green_support > 0.35 and local_contrast < 85:
             return None
 
     score = source_bonus
@@ -289,9 +289,9 @@ def _score_circle_candidate(
     score += min(shadow_support / 0.35, 1.0) * 0.8
 
     if source_image is not None:
-        score += 0.45 if median_saturation <= 45 else -0.75
-        score += 0.45 if median_value >= 155 else -0.65
-        score += 0.35 if green_support <= 0.12 else -0.90
+        score += 0.45 if median_saturation <= 55 else -0.35
+        score += 0.45 if median_value >= 140 else -0.45
+        score += 0.35 if green_support <= 0.18 else -0.70
 
     if edge_support < 0.10 and source_bonus < 0.5:
         return None
