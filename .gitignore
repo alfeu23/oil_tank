@@ -18,6 +18,13 @@ dataset/oil_tanks
 # YOLO split output (generated)
 dataset/yolo
 dataset/
+runs/
+output/
+output_2/
+images/
+project-1-at-2026-06-09-16-28-e9faa989
+dataset_seg/
+test/
 
 # Ultralytics outputs
 runs
