@@ -84,6 +84,178 @@ def _largest_component_shape(mask, reference_area):
     return best
 
 
+def _component_stats(mask):
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    components = []
+    for label_id in range(1, num_labels):
+        area = int(stats[label_id, cv2.CC_STAT_AREA])
+        if area <= 0:
+            continue
+        x = int(stats[label_id, cv2.CC_STAT_LEFT])
+        y = int(stats[label_id, cv2.CC_STAT_TOP])
+        w = int(stats[label_id, cv2.CC_STAT_WIDTH])
+        h = int(stats[label_id, cv2.CC_STAT_HEIGHT])
+        component = labels == label_id
+        components.append(
+            {
+                "area": area,
+                "bbox": (y, x, y + h, x + w),
+                "image": component[y : y + h, x : x + w],
+                "label_id": label_id,
+            }
+        )
+    return labels, components
+
+
+def _bbox_intersection_area(bb1, bb2):
+    y_min1, x_min1, y_max1, x_max1 = bb1
+    y_min2, x_min2, y_max2, x_max2 = bb2
+    x_left = max(x_min1, x_min2)
+    x_right = min(x_max1, x_max2)
+    y_top = max(y_min1, y_min2)
+    y_bottom = min(y_max1, y_max2)
+    return max(0, x_right - x_left) * max(0, y_bottom - y_top)
+
+
+def _clear_border(mask):
+    labels, components = _component_stats(mask)
+    cleaned = mask.copy()
+    h, w = mask.shape[:2]
+    for component in components:
+        y_min, x_min, y_max, x_max = component["bbox"]
+        if y_min <= 0 or x_min <= 0 or y_max >= h or x_max >= w:
+            cleaned[labels == component["label_id"]] = 0
+    return cleaned
+
+
+def _fill_small_holes(mask, max_hole_area=64):
+    inverse = np.where(mask > 0, 0, 255).astype(np.uint8)
+    labels, holes = _component_stats(inverse)
+    filled = mask.copy()
+    h, w = mask.shape[:2]
+    for hole in holes:
+        y_min, x_min, y_max, x_max = hole["bbox"]
+        touches_border = y_min <= 0 or x_min <= 0 or y_max >= h or x_max >= w
+        if not touches_border and hole["area"] <= max_hole_area:
+            filled[labels == hole["label_id"]] = 255
+    return filled
+
+
+def _threshold_minimum_approx(values):
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return 0.0
+
+    hist, bin_edges = np.histogram(values, bins=256)
+    hist = hist.astype(np.float32)
+
+    for _ in range(128):
+        maxima = []
+        for i in range(1, len(hist) - 1):
+            if hist[i - 1] < hist[i] and hist[i + 1] < hist[i]:
+                maxima.append(i)
+        if len(maxima) <= 2:
+            break
+        hist = np.convolve(hist, np.array([1, 1, 1], dtype=np.float32) / 3.0, "same")
+
+    if len(maxima) >= 2:
+        left, right = sorted(maxima, key=lambda idx: hist[idx], reverse=True)[:2]
+        left, right = sorted((left, right))
+        valley = left + int(np.argmin(hist[left : right + 1]))
+        return float((bin_edges[valley] + bin_edges[valley + 1]) / 2.0)
+
+    normalized = cv2.normalize(values, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    otsu, _ = cv2.threshold(normalized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return float(values.min() + (otsu / 255.0) * (values.max() - values.min()))
+
+
+def _kaggle_shadow_enhancement(crop):
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV).astype(np.float32)
+    value = hsv[:, :, 2] / 255.0
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+    lightness = lab[:, :, 0] * (100.0 / 255.0)
+    blue_yellow = lab[:, :, 2] - 128.0
+    return -(lightness + blue_yellow) / (value + 1.0)
+
+
+def detect_kaggle_shadow_regions(
+    image,
+    circle,
+    factor_x=0.5,
+    factor_y=0.6,
+    min_region_area=25,
+):
+    x, y, r = [int(v) for v in circle[:3]]
+    fallback_area = int(np.count_nonzero(_circle_mask(image.shape, x, y, r)))
+    x_min = max(0, x - r)
+    x_max = min(image.shape[1], x + r)
+    y_min = max(0, y - r)
+    y_max = min(image.shape[0], y + r)
+    if x_max <= x_min or y_max <= y_min:
+        return np.zeros(image.shape[:2], dtype=np.uint8), 0, fallback_area, 0.0, False
+
+    margin_x = int((x_max - x_min) * factor_x)
+    margin_y = int((y_max - y_min) * factor_y)
+    crop_x_min = max(0, x_min - margin_x)
+    crop_x_max = min(image.shape[1], x_max + margin_x)
+    crop_y_min = max(0, y_min - margin_y)
+    crop_y_max = min(image.shape[0], y_max + margin_y // 2)
+    crop = image[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
+    if crop.size == 0:
+        return np.zeros(image.shape[:2], dtype=np.uint8), 0, fallback_area, 0.0, False
+
+    bbox_relative = (
+        y_min - crop_y_min,
+        x_min - crop_x_min,
+        y_max - crop_y_min,
+        x_max - crop_x_min,
+    )
+
+    enhanced = _kaggle_shadow_enhancement(crop)
+    threshold_min = _threshold_minimum_approx(enhanced)
+    threshold_mean = float(np.mean(enhanced))
+    threshold = (0.6 * threshold_min) + (0.4 * threshold_mean)
+    thresh_mask = np.where(enhanced > threshold, 255, 0).astype(np.uint8)
+
+    thresh_mask = _clear_border(thresh_mask)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    processed = cv2.morphologyEx(thresh_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+    processed = _fill_small_holes(processed, max_hole_area=64)
+
+    labels, components = _component_stats(processed)
+    regions = []
+    bbox_area = max(1, (bbox_relative[2] - bbox_relative[0]) * (bbox_relative[3] - bbox_relative[1]))
+    min_intersection = max(120, int(bbox_area * 0.08))
+    for component in components:
+        if component["area"] <= min_region_area:
+            continue
+        if _bbox_intersection_area(bbox_relative, component["bbox"]) <= min_intersection:
+            continue
+        y0, x0, y1, x1 = component["bbox"]
+        threshold_mean_in_bbox = float(np.mean(thresh_mask[y0:y1, x0:x1] > 0))
+        component_mean = float(np.mean(component["image"]))
+        if abs(threshold_mean_in_bbox - component_mean) >= 0.12:
+            continue
+        regions.append(component)
+
+    if not regions:
+        return np.zeros(image.shape[:2], dtype=np.uint8), 0, fallback_area, 0.0, False
+
+    regions = sorted(regions, key=lambda region: region["area"], reverse=True)
+    selected = regions[:2]
+    external_area = int(selected[0]["area"])
+    internal_area = int(selected[1]["area"]) if len(selected) > 1 else 0
+    shadow_ratio = internal_area / external_area if external_area > 0 else 0.0
+
+    crop_mask = np.zeros(crop.shape[:2], dtype=np.uint8)
+    for region in selected:
+        crop_mask[labels == region["label_id"]] = 255
+
+    full_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    full_mask[crop_y_min:crop_y_max, crop_x_min:crop_x_max] = crop_mask
+    return full_mask, internal_area, external_area, shadow_ratio, True
+
+
 def detect_internal_shadow(
     image,
     circle,
@@ -269,6 +441,8 @@ def estimate_tank_volumes(
     min_oil_component_circularity=0.60,
     min_oil_component_aspect=0.55,
     min_oil_component_fill=0.45,
+    volume_method="kaggle_shadow",
+    force_open_roof=False,
 ):
     estimates = []
     combined_mask = np.zeros(image.shape[:2], dtype=np.uint8)
@@ -278,11 +452,27 @@ def estimate_tank_volumes(
     for tank_id, circle in enumerate(circles, start=1):
         classification_circle = classification_circles[tank_id - 1]
         score = float(scores[tank_id - 1]) if scores is not None else 1.0
-        shadow_mask, shadow_area, external_area, shadow_ratio = detect_internal_shadow(
-            image,
-            circle,
-            min_shadow_fraction=min_shadow_fraction,
-        )
+        if volume_method == "kaggle_shadow":
+            (
+                shadow_mask,
+                shadow_area,
+                external_area,
+                shadow_ratio,
+                has_shadow_regions,
+            ) = detect_kaggle_shadow_regions(image, classification_circle)
+        else:
+            (
+                shadow_mask,
+                shadow_area,
+                external_area,
+                shadow_ratio,
+            ) = detect_internal_shadow(
+                image,
+                circle,
+                min_shadow_fraction=min_shadow_fraction,
+            )
+            has_shadow_regions = shadow_area > 0
+
         oil_mask, oil_area, oil_ratio, has_oil_evidence = detect_oil_evidence(
             image,
             classification_circle,
@@ -311,7 +501,11 @@ def estimate_tank_volumes(
             oil_ratio = 0.0
             has_oil_evidence = False
 
-        has_open_roof_evidence = has_oil_evidence
+        has_open_roof_evidence = (
+            (force_open_roof or has_oil_evidence)
+            and cr >= min_open_roof_radius
+            and not is_clipped
+        )
         if has_open_roof_evidence:
             combined_mask = cv2.bitwise_or(combined_mask, shadow_mask)
             combined_mask = cv2.bitwise_or(combined_mask, oil_mask)
