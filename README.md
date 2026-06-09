@@ -3,7 +3,7 @@
 
 ## Tasks
 - [x] Documenting and doing the Slide for Presentation.
-- [ ] Implement the first basic shadow calculator.
+- [x] Implement the first basic shadow calculator.
 - [ ] Train the neural network to be able to on any image single-out the oil tanks and do the calculations on it.
 - [ ] Bonus-Step: Make a integration with the united states oil regulation to try and predict the prices or information it will register.
 
@@ -33,3 +33,38 @@ python src/yolo/split_dataset.py --val-ratio 0.1 --seed 42
 Saídas:
 - `dataset/yolo/oil_tanks.yaml` (arquivo `data` para Ultralytics)
 - `dataset/yolo/splits.json` (quais grupos foram para train/val)
+
+## Classic vision volume estimate
+
+After detecting circular tanks, the classic pipeline can estimate fill volume
+from internal floating-roof shadow area:
+
+```bash
+.venv/bin/python src/classic_vision/main.py \
+  --image "/Users/alfeu/.cache/kagglehub/datasets/towardsentropy/oil-storage-tanks/versions/1/Oil Tanks/image_patches/01_5_2.jpg" \
+  --output predictions/classic_vision_volume.png \
+  --calculate-volume \
+  --min-radius 6 \
+  --max-radius 40 \
+  --min-area 40 \
+  --max-area 6000
+```
+
+The volume estimate is:
+
+```text
+volume = 1 - (internal_shadow_area / external_tank_area)
+```
+
+Only tanks with open-roof evidence are included in the volume calculation by
+default. A tank is treated as open roof when it has measurable internal shadow
+or visible dark oil/liquid evidence inside the tank. Bright, uniform tanks
+without either signal are marked as `closed_roof` so fixed/closed-roof tanks do
+not skew the result. Use `--min-oil-fraction` to tune the oil evidence threshold
+or `--include-unshadowed` only if you intentionally want unmeasured tanks counted
+as 100% full.
+
+Outputs:
+- Annotated image with tank IDs and volume percentages.
+- `*_volumes.csv` with per-tank area and volume values.
+- `*_open_roof_evidence_mask.png` with the detected shadow/oil evidence pixels.
