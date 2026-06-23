@@ -6,9 +6,9 @@ from sahi import AutoDetectionModel
 from sahi.predict import get_sliced_prediction
 
 image_path = Path(
-    "Captura de Tela 2026-06-09 às 15.33.47.png",
+    "dataset/oil_tanks/large_images/06_large.jpg",
 )
-output_dir = Path("output/images_captura")
+output_dir = Path("output/images_6")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 detection_model = AutoDetectionModel.from_pretrained(
