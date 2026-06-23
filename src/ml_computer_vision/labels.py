@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-coco_path = Path("project-1-at-2026-06-09-13-40-beae498f/result.json")
-coco_image_path = Path("project-1-at-2026-06-09-13-40-beae498f/images")
+coco_path = Path("project-1-at-2026-06-10-01-32-0edee4ac/result.json")
+coco_image_path = Path("project-1-at-2026-06-10-01-32-0edee4ac/images")
 out_dir = Path("dataset_seg")
 mask_dir = out_dir / "masks"
 mask_dir.mkdir(parents=True, exist_ok=True)
@@ -41,19 +41,7 @@ for image_id, img_info in images.items():
             draw.polygon(points, fill=class_value)
 
     original_name = Path(img_info["file_name"]).name
-    # remove prefixo aleatório do Label Studio, mantendo tank_00000.png
-    if "-" in original_name:
-        original_name = original_name.split("-", 1)[1]
-
     mask_name = Path(original_name).with_suffix(".png").name
     mask.save(mask_dir / mask_name)
 
 print("Máscaras criadas em:", mask_dir)
-
-
-mask = np.array(Image.open("dataset_seg/masks/tank_00000.png"))
-print(np.unique(mask))
-
-Path("dataset_seg/masks_vis").mkdir(parents=True, exist_ok=True)
-vis = (mask * 120).astype(np.uint8)
-Image.fromarray(vis).save("dataset_seg/masks_vis/tank_00000_vis.png")

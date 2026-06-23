@@ -118,8 +118,12 @@ def main():
     random.seed(42)
     random.shuffle(image_paths)
 
-    train_paths = image_paths[:52]
-    val_paths = image_paths[52:]
+    n = len(image_paths)
+    print(n)
+    train_n = int(n * 0.75)
+
+    train_paths = image_paths[:train_n]
+    val_paths = image_paths[train_n:]
 
     train_loader = DataLoader(
         TankSegDataset(train_paths, augment=False),
