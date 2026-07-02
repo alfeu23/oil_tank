@@ -1,0 +1,124 @@
+{
+  "sites": [
+    {
+      "id": "cushing",
+      "name": "Cushing, Oklahoma tank farms",
+      "state": "oklahoma",
+      "aliases": ["cushing_ok", "cushing-ok", "cushing_oklahoma"],
+      "latitude": 35.97972,
+      "longitude": -96.76083,
+      "bbox": [-96.88, 35.8, -96.6, 36.08],
+      "source_notes": [
+        "Major above-ground crude oil storage hub around Cushing.",
+        "https://en.wikipedia.org/wiki/Oil_industry_in_Cushing,_Oklahoma",
+        "https://en.wikipedia.org/wiki/Cushing,_Oklahoma"
+      ]
+    },
+    {
+      "id": "patoka",
+      "name": "Patoka / Vernon, Illinois terminal",
+      "state": "illinois",
+      "aliases": ["patoka_il", "patoka-il", "patoka_illinois", "vernon"],
+      "latitude": 38.76,
+      "longitude": -89.08,
+      "bbox": [-89.16, 38.7, -89.0, 38.82],
+      "source_notes": [
+        "Above-ground crude oil terminal and storage area near Patoka and Vernon.",
+        "https://en.wikipedia.org/wiki/Patoka_Oil_Terminal"
+      ]
+    },
+    {
+      "id": "houston",
+      "name": "Houston Ship Channel / Channelview",
+      "state": "texas",
+      "aliases": [
+        "houston_channelview_tx",
+        "houston-channelview-tx",
+        "channelview",
+        "houston_ship_channel"
+      ],
+      "latitude": 29.8,
+      "longitude": -95.115,
+      "bbox": [-95.3, 29.68, -94.93, 29.92],
+      "source_notes": [
+        "Large above-ground refinery and terminal tank farms along the Houston Ship Channel.",
+        "https://en.wikipedia.org/wiki/Port_of_Houston"
+      ]
+    },
+    {
+      "id": "beaumont",
+      "name": "Beaumont / Nederland / Port Arthur",
+      "state": "texas",
+      "aliases": [
+        "beaumont_nederland_tx",
+        "beaumont-nederland-tx",
+        "nederland",
+        "port_arthur",
+        "port-arthur"
+      ],
+      "latitude": 30.01,
+      "longitude": -93.99,
+      "bbox": [-94.16, 29.88, -93.82, 30.14],
+      "source_notes": [
+        "Major Gulf Coast above-ground crude and product storage area around Beaumont, Nederland, and Port Arthur."
+      ]
+    },
+    {
+      "id": "corpus",
+      "name": "Corpus Christi / Ingleside",
+      "state": "texas",
+      "aliases": [
+        "corpus_christi_ingleside_tx",
+        "corpus-christi-ingleside-tx",
+        "corpus_christi",
+        "corpus-christi",
+        "ingleside"
+      ],
+      "latitude": 27.84,
+      "longitude": -97.24,
+      "bbox": [-97.38, 27.74, -97.1, 27.94],
+      "source_notes": [
+        "Above-ground tank farms near Corpus Christi, Ingleside, and nearby export infrastructure.",
+        "https://en.wikipedia.org/wiki/Port_of_Corpus_Christi"
+      ]
+    },
+    {
+      "id": "st-james",
+      "name": "St. James, Louisiana terminal corridor",
+      "state": "louisiana",
+      "aliases": [
+        "st_james",
+        "st-james-la",
+        "st_james_clovelly_la",
+        "st-james-clovelly-la",
+        "clovelly"
+      ],
+      "latitude": 29.98194,
+      "longitude": -90.83167,
+      "bbox": [-91.02, 29.88, -90.68, 30.08],
+      "source_notes": [
+        "Louisiana above-ground crude storage corridor around St. James.",
+        "https://en.wikipedia.org/wiki/St._James,_Louisiana"
+      ]
+    },
+    {
+      "id": "lake-charles",
+      "name": "Lake Charles / Calcasieu Ship Channel",
+      "state": "louisiana",
+      "aliases": [
+        "lake_charles",
+        "lake-charles-la",
+        "lake_charles_la",
+        "calcasieu",
+        "calcasieu_ship_channel"
+      ],
+      "latitude": 30.1809,
+      "longitude": -93.2967,
+      "bbox": [-93.42, 30.05, -93.18, 30.32],
+      "source_notes": [
+        "Above-ground petroleum storage and port corridor around Lake Charles and the Calcasieu Ship Channel.",
+        "https://en.wikipedia.org/wiki/Port_of_Lake_Charles"
+      ]
+    }
+  ]
+}
