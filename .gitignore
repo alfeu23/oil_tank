@@ -28,3 +28,9 @@ test/
 
 # Ultralytics outputs
 runs
+<<<<<<< HEAD
+=======
+.env
+.env
+.env
+>>>>>>> 6d7bb4abe02bdeda53881c6e56505a664a7671fe
