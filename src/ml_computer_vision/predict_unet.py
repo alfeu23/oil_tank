@@ -107,7 +107,7 @@ def predict_one(
     output_dir: Path,
     device: torch.device,
     image_size: int = 512,
-) -> None:
+) -> float | None:
     original = Image.open(image_path).convert("RGB")
     resized = original.resize((image_size, image_size))
 
@@ -142,6 +142,7 @@ def predict_one(
         print("fill_ratio: undefined, OuterShadow area is zero")
     else:
         print(f"fill_ratio = 1 - InnerShadow/OuterShadow = {ratio:.4f}")
+    return ratio
 
 
 def main() -> None:
@@ -200,8 +201,16 @@ def main() -> None:
     if not image_paths:
         raise FileNotFoundError(f"No images found in {args.source}")
 
+    average_ratio = 0
+
     for image_path in image_paths:
-        predict_one(model, image_path, args.out, device, image_size=args.image_size)
+        average_ratio += predict_one(
+            model, image_path, args.out, device, image_size=args.image_size
+        )
+
+    if image_paths:
+        average_ratio /= len(image_paths)
+        print(f"Average fill ratio: {average_ratio:.4f}")
 
 
 if __name__ == "__main__":
