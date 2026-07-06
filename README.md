@@ -73,3 +73,79 @@ Outputs:
 - Annotated image with tank IDs and volume percentages.
 - `*_volumes.csv` with per-tank area and volume values.
 - `*_open_roof_evidence_mask.png` with the detected shadow/oil evidence pixels.
+
+## ML-Finance volume + price modeling
+
+The ML-Finance pipeline starts from a machine-readable large-image volume CSV,
+then joins it to image dates and oil prices.
+
+Expected input columns:
+
+- `Filename`: large image filename, e.g. `01_large.jpg`.
+- one volume column such as `volume_percent`, `volume_percentage`,
+  `volume_ratio`, `fill_percent`, or `fill_ratio`.
+
+### Prepare ML volume features
+
+```bash
+uv run python src/ml_model/prepare_volume_features.py \
+  --input path/to/large_image_volumes.csv \
+  --output financial_data/volume_features.csv
+```
+
+Validate that dates and image-level features are usable for training:
+
+```bash
+uv run python src/ml_model/validate_training_data.py \
+  --metadata large_image_data_with_dates.csv \
+  --prices financial_data/oil_prices_2018.csv \
+  --volume-features financial_data/volume_features.csv
+```
+
+### Download 2018 crude oil prices
+
+Download daily WTI prices for 2018:
+
+```bash
+uv run python src/ml_model/download_oil_prices.py \
+  --year 2018 \
+  --benchmark wti \
+  --output financial_data/oil_prices_2018.csv
+```
+
+Use `--benchmark brent` for Brent prices, or `--benchmark both` to keep both
+series in the same file.
+
+### Join image dates, volumes, and prices
+
+```bash
+uv run python src/ml_model/build_volume_price_dataset.py \
+  --metadata large_image_data_with_dates.csv \
+  --prices financial_data/oil_prices_2018.csv \
+  --volume-features financial_data/volume_features.csv \
+  --output financial_data/volume_price_dataset.csv
+```
+
+For image dates that fall on weekends or market holidays, the join uses the
+exact trading-day date in `large_image_data_with_dates.csv`. If any image date
+is missing from the price file, the command fails instead of silently dropping
+rows.
+
+### Train a price model
+
+```bash
+uv run python src/ml_model/train_price_model.py \
+  --dataset financial_data/volume_price_dataset.csv \
+  --output-dir financial_data/model
+```
+
+This trains a small ridge regression model from the image-level volume features
+and date feature (`day_of_year`) to `oil_price_usd`. It also compares
+against a mean-price baseline and a date-only baseline. It writes:
+
+- `financial_data/model/model.json`
+- `financial_data/model/metrics.csv`
+- `financial_data/model/predictions.csv`
+
+For a meaningful validation metric, prepare volume features for many large
+images before training.
