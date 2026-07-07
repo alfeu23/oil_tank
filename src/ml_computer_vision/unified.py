@@ -57,6 +57,7 @@ def run_detection(
     W, H = img.size
 
     metadata = []
+    image_stem = image_path.stem  # evita colisão de nomes entre imagens diferentes
 
     for i, pred in enumerate(result.object_prediction_list):
         bbox = pred.bbox
@@ -73,14 +74,14 @@ def run_detection(
         crop = img.crop((x1m, y1m, x2m, y2m))
         crop = crop.resize((crop_size, crop_size))
 
-        crop_name = f"tank_{i:05d}.png"
-        crop_path = output_dir / "crops" / crop_name
+        crop_name = f"{image_stem}_tank_{i:05d}.png"
+        crop_path = output_dir / "crops" / image_stem / crop_name
         crop_path.parent.mkdir(parents=True, exist_ok=True)
         crop.save(crop_path)
 
         metadata.append(
             {
-                "id": f"tank_{i:05d}",
+                "id": f"{image_stem}_tank_{i:05d}",
                 "source_image": str(image_path),
                 "x1": x1m,
                 "y1": y1m,
@@ -251,6 +252,50 @@ def run_segmentation(
     return crops_metadata, avg_ratio
 
 
+def compile_fill_ratios(metadata: list[dict]) -> list[dict]:
+    """Compila, num único CSV, o fill_ratio de todos os tanques de todas as
+    imagens (sem agrupar/tirar média por imagem)."""
+    rows = []
+    for entry in metadata:
+        rows.append(
+            {
+                "id": entry.get("id"),
+                "source_image": entry.get("source_image"),
+                "fill_ratio": entry.get("fill_ratio"),
+            }
+        )
+    return rows
+
+
+def compute_average_by_image(metadata: list[dict]) -> list[dict]:
+    """Agrupa o metadata por source_image e calcula a média do fill_ratio
+    em cada imagem, ignorando tanques sem ratio válido (OuterShadow = 0)."""
+    by_image: dict[str, list[float]] = {}
+    counts: dict[str, int] = {}
+
+    for entry in metadata:
+        source = entry["source_image"]
+        counts[source] = counts.get(source, 0) + 1
+        ratio = entry.get("fill_ratio")
+        if ratio is not None:
+            by_image.setdefault(source, []).append(ratio)
+
+    rows = []
+    for source in sorted(counts.keys()):
+        ratios = by_image.get(source, [])
+        avg = sum(ratios) / len(ratios) if ratios else None
+        rows.append(
+            {
+                "source_image": source,
+                "num_tanks": counts[source],
+                "num_valid_ratio": len(ratios),
+                "average_fill_ratio": avg,
+            }
+        )
+
+    return rows
+
+
 def write_metadata_csv(metadata: list[dict], csv_path: Path) -> None:
     if not metadata:
         print("Nenhum tanque detectado, CSV não gerado.")
@@ -263,6 +308,28 @@ def write_metadata_csv(metadata: list[dict], csv_path: Path) -> None:
     print(f"Metadata final salvo em: {csv_path}")
 
 
+def resolve_image_list(
+    image_args: list[Path], images_dir: Optional[Path], pattern: str
+) -> list[Path]:
+    """Monta a lista final de imagens a processar, a partir de:
+    - --image (um ou mais caminhos; o shell já expande glob antes de chegar aqui)
+    - --images-dir + --pattern (glob feito pelo próprio script)
+    """
+    images: list[Path] = list(image_args)
+
+    if images_dir is not None:
+        images.extend(sorted(images_dir.glob(pattern)))
+
+    seen = set()
+    unique_images = []
+    for p in images:
+        if p not in seen:
+            seen.add(p)
+            unique_images.append(p)
+
+    return unique_images
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Pipeline unificado: detecção de tanques (SAHI/YOLOv8) + segmentação de sombra (U-Net)."
@@ -270,6 +337,22 @@ def main() -> None:
     parser.add_argument(
         "--image",
         type=Path,
+        nargs="+",
+        default=None,
+        help="Uma ou mais imagens. Um glob (ex: dataset/*.jpg) já é expandido pelo "
+        "próprio shell em múltiplos arquivos.",
+    )
+    parser.add_argument(
+        "--images-dir",
+        type=Path,
+        default=None,
+        help="Pasta com várias imagens a processar (alternativa a --image com glob).",
+    )
+    parser.add_argument(
+        "--pattern",
+        type=str,
+        default="*.jpg",
+        help="Padrão glob usado junto com --images-dir (default: *.jpg).",
     )
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument(
@@ -290,41 +373,64 @@ def main() -> None:
     )
     parser.add_argument("--detector-image-size", type=int, default=4800)
     parser.add_argument("--unet-image-size", type=int, default=512)
-    parser.add_argument(
-        "--skip-detection",
-        action="store_true",
-        help="Pula a etapa 1, assume que já existe metadata de crops.",
-    )
     args = parser.parse_args()
 
-    # Etapa 1: detecção + recorte
-    metadata = run_detection(
-        image_path=args.image,
-        output_dir=args.output_dir,
-        yolo_weights=args.yolo_weights,
-        confidence_threshold=args.confidence_threshold,
-        device=args.detector_device,
-        detector_image_size=args.detector_image_size,
-    )
-    print(f"{len(metadata)} tanques detectados.")
+    image_list = resolve_image_list(args.image or [], args.images_dir, args.pattern)
+    if not image_list:
+        raise SystemExit("Nenhuma imagem informada: use --image ou --images-dir.")
 
-    # Etapa 2: segmentação U-Net em cima dos crops
+    print(f"Processando {len(image_list)} imagem(ns):")
+    for p in image_list:
+        print(f"  - {p}")
+
+    # Etapa 1: detecção + recorte, para cada imagem
+    all_metadata: list[dict] = []
+    for image_path in image_list:
+        if not image_path.exists():
+            print(f"[aviso] imagem não encontrada, pulando: {image_path}")
+            continue
+        print(f"-- detectando: {image_path}")
+        metadata = run_detection(
+            image_path=image_path,
+            output_dir=args.output_dir,
+            yolo_weights=args.yolo_weights,
+            confidence_threshold=args.confidence_threshold,
+            device=args.detector_device,
+            detector_image_size=args.detector_image_size,
+        )
+        print(f"   {len(metadata)} tanques detectados em {image_path.name}.")
+        all_metadata.extend(metadata)
+
+    print(f"Total de tanques detectados em todas as imagens: {len(all_metadata)}")
+
+    # Etapa 2: segmentação U-Net em cima de todos os crops de todas as imagens
     unet_device = get_device(args.unet_device)
     print("device (U-Net):", unet_device)
-    metadata, ratio = run_segmentation(
-        crops_metadata=metadata,
+    all_metadata, ratio = run_segmentation(
+        crops_metadata=all_metadata,
         unet_weights=args.unet_weights,
         output_dir=args.output_dir,
         device=unet_device,
         image_size=args.unet_image_size,
     )
 
-    # Etapa 3: CSV final unificado
-    write_metadata_csv(metadata, args.output_dir / "metadata_full.csv")
-    if ratio:
-        write_metadata_csv(
-            [{"average_fill_ratio": ratio}], args.output_dir / "average_fill_ratio.csv"
-        )
+    # Etapa 3: CSVs finais
+    write_metadata_csv(all_metadata, args.output_dir / "metadata_full.csv")
+
+    # CSV único com todos os fill_ratio de todos os tanques/imagens compilados
+    fill_ratios_compiled = compile_fill_ratios(all_metadata)
+    write_metadata_csv(
+        fill_ratios_compiled, args.output_dir / "fill_ratios_compiled.csv"
+    )
+
+    # CSV com a média do fill_ratio compilada por imagem
+    averages_by_image = compute_average_by_image(all_metadata)
+    write_metadata_csv(
+        averages_by_image, args.output_dir / "average_fill_ratio_by_image.csv"
+    )
+
+    if ratio is not None:
+        print(f"Average fill ratio (todas as imagens): {ratio:.4f}")
 
 
 if __name__ == "__main__":
