@@ -1,5 +1,0 @@
-tank_id,x,y,radius,score,external_area,internal_shadow_area,internal_shadow_ratio,oil_area,oil_ratio,volume_ratio,volume_percent,has_internal_shadow,has_oil_evidence,roof_type,included_in_volume
-1,46,42,34,1.0000,411,80,0.194647,0,0.000000,0.805353,80.54,True,False,open_roof,True
-2,45,326,32,1.0000,506,137,0.270751,0,0.000000,0.729249,72.92,True,False,open_roof,True
-3,40,454,40,1.0000,606,268,0.442244,0,0.000000,0.557756,55.78,True,False,open_roof,True
-4,170,454,34,1.0000,1051,0,0.000000,0,0.000000,1.000000,100.00,False,False,open_roof,True

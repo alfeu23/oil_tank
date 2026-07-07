@@ -5,11 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "imagecodecs>=2026.6.26",
     "kagglehub>=1.0.0",
     "matplotlib>=3.10.9",
     "opencv-python>=4.13.0.92",
     "pandas>=3.0.3",
     "sahi>=0.11.14",
+    "scikit-image>=0.26.0",
     "torch>=2.12.0",
     "torchvision>=0.27.0",
     "tqdm>=4.67.3",
